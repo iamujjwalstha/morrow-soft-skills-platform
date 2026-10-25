@@ -448,7 +448,7 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
     setVoiceMode(true);
     setVoiceStatus("Checking live voice availability…");
 
-    if (navigator.mediaDevices?.getUserMedia && typeof RTCPeerConnection !== "undefined") {
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function" && typeof RTCPeerConnection !== "undefined") {
       try {
         const availability = await fetch("/api/realtime/session", { cache: "no-store" });
         const status = await availability.json();
