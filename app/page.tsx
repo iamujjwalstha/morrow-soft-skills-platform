@@ -17,6 +17,22 @@ type Scenario = {
   characterMood: string; learnerRole: string; learnerInstructions: string; setting: string; accent: string;
 };
 type Turn = { role: "user" | "assistant"; content: string; at?: string };
+type BrowserSpeechRecognitionResult = { isFinal: boolean; [index: number]: { transcript: string } };
+type BrowserSpeechRecognitionEvent = { resultIndex: number; results: ArrayLike<BrowserSpeechRecognitionResult> };
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type WindowWithSpeechRecognition = Window & {
+  SpeechRecognition?: new () => BrowserSpeechRecognition;
+  webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
+};
 type Score = { criterion: string; score: number; rationale: string; evidence: string; suggestion: string };
 type Report = { overall: number; summary: string; strengths: string[]; improvements: string[]; nextStep: string; scores: Score[]; mode?: "ai" | "demo" };
 type Session = { id: string; scenarioId: string; scenarioTitle: string; completedAt: string; overall: number; duration: number; report: Report; turns: Turn[] };
@@ -87,9 +103,9 @@ export default function Home() {
     setSelected(s); setTurns([{ role: "assistant", content: s.openingLine, at: new Date().toISOString() }]); setComposer(""); setReport(null); setActiveNav("Practice lab");
   }
 
-  async function sendMessage() {
-    const content = composer.trim();
-    if (!content || !selected || busy) return;
+  async function sendMessage(spokenContent?: string): Promise<string | null> {
+    const content = (spokenContent ?? composer).trim();
+    if (!content || !selected || busy) return null;
     const nextTurns: Turn[] = [...turns, { role: "user", content, at: new Date().toISOString() }];
     setTurns(nextTurns); setComposer(""); setBusy(true);
     try {
@@ -98,8 +114,11 @@ export default function Home() {
       if (!response.ok) throw new Error(result.error || "The roleplay service could not respond.");
       setTurns([...nextTurns, { role: "assistant", content: result.reply, at: new Date().toISOString() }]);
       if (result.mode === "demo") setReport((old) => old?.mode === "demo" ? old : null);
+      return typeof result.reply === "string" ? result.reply : null;
     } catch (error) {
-      setTurns([...nextTurns, { role: "assistant", content: `I hit a connection issue. Please try sending that again. (${error instanceof Error ? error.message : "Unknown error"})`, at: new Date().toISOString() }]);
+      const errorText = `I hit a connection issue. Please try sending that again. (${error instanceof Error ? error.message : "Unknown error"})`;
+      setTurns([...nextTurns, { role: "assistant", content: errorText, at: new Date().toISOString() }]);
+      return errorText;
     } finally { setBusy(false); }
   }
 
@@ -170,7 +189,7 @@ export default function Home() {
 
           {activeNav === "Overview" && <OverviewView sessions={sessions} scenarios={scenarios} latest={latest} average={average} completeCount={completeCount} onStart={startScenario} onNavigate={setActiveNav} onReport={downloadReport} />}
           {activeNav === "Practice lab" && !selected && <PracticeView scenarios={filteredScenarios} search={search} setSearch={setSearch} filter={filter} setFilter={setFilter} onStart={startScenario} />}
-          {isPractice && selected && <PracticeRoom scenario={selected} turns={turns} setTurns={setTurns} composer={composer} setComposer={setComposer} busy={busy} report={report} onSend={sendMessage} onFinish={finishSession} onBack={() => { setSelected(null); setReport(null); }} onRestart={() => { if (selected) setTurns([{ role: "assistant", content: selected.openingLine }]); setReport(null); }} chatEndRef={chatEndRef} />}
+          {isPractice && selected && <PracticeRoom scenario={selected} turns={turns} composer={composer} setComposer={setComposer} busy={busy} report={report} onSend={() => { void sendMessage(); }} onVoiceSend={sendMessage} onFinish={finishSession} onBack={() => { setSelected(null); setReport(null); }} onRestart={() => { if (selected) setTurns([{ role: "assistant", content: selected.openingLine }]); setReport(null); }} chatEndRef={chatEndRef} />}
           {activeNav === "Scenario studio" && <ScenarioStudio scenarios={scenarios} sessions={sessions} onCreate={() => setShowCreate(true)} onPreview={startScenario} onDelete={(id) => { setScenarios((old) => old.filter((s) => s.id !== id)); setToast("Scenario removed from this browser."); }} />}
           {activeNav === "Learners" && <LearnersView sessions={sessions} />}
           {activeNav === "Analytics" && <AnalyticsView sessions={sessions} scenarios={scenarios} average={average} />}
@@ -204,8 +223,205 @@ function PracticeView({ scenarios, search, setSearch, filter, setFilter, onStart
   return <div className="view-stack"><div className="practice-intro"><div><div className="eyebrow">SAFE SPACE. REAL CONVERSATIONS.</div><h2>What would you like to practise?</h2><p>Choose a realistic moment, try a different response and reflect on what worked.</p></div><div className="practice-intro-icon"><BrainCircuit size={34}/><span/><span/></div></div><div className="filters-row"><div className="search-box"><Search size={17}/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search scenarios..." aria-label="Search scenarios"/></div><div className="filter-select"><span>Skill area</span><select value={filter} onChange={(e) => setFilter(e.target.value)}>{categories.map((x) => <option key={x}>{x}</option>)}</select><ChevronDown size={14}/></div><div className="result-count">{scenarios.length} scenarios</div></div>{scenarios.length ? <div className="scenario-grid">{scenarios.map((s, i) => <div className="scenario-card" key={s.id}><div className={`scenario-card-visual visual-${s.accent}`}><div className="visual-number">0{i+1}</div><div className="visual-shape shape-one"/><div className="visual-shape shape-two"/><div className="visual-icon">{s.category === "Leadership" ? <Users size={26}/> : s.category === "Customer service" ? <Headphones size={26}/> : s.category === "Communication" ? <MessageCircle size={26}/> : <BriefcaseBusiness size={26}/>}</div><span className="difficulty-chip">{s.level}</span></div><div className="scenario-card-body"><div className="scenario-category">{s.category}</div><h3>{s.title}</h3><p>{s.description}</p><div className="scenario-card-foot"><div className="time-label"><Clock3 size={14}/>{s.minutes} min</div><button className="btn btn-primary btn-small" onClick={() => onStart(s)}>Start <ArrowRight size={14}/></button></div></div></div>)}</div> : <div className="empty-state"><div className="empty-symbol"><Search size={23}/></div><strong>No scenarios found</strong><span>Try a different search term or skill filter.</span></div>}<div className="privacy-banner"><div className="privacy-icon"><ShieldCheck size={20}/></div><div><strong>Practice without pressure</strong><p>This prototype stores practice sessions in your browser. Do not enter real customer, employee or sensitive personal information.</p></div></div></div>;
 }
 
-function PracticeRoom({ scenario, turns, setTurns, composer, setComposer, busy, report, onSend, onFinish, onBack, onRestart, chatEndRef }: { scenario: Scenario; turns: Turn[]; setTurns: Dispatch<SetStateAction<Turn[]>>; composer: string; setComposer: (v: string) => void; busy: boolean; report: Report | null; onSend: () => void; onFinish: () => void; onBack: () => void; onRestart: () => void; chatEndRef: RefObject<HTMLDivElement | null> }) {
-  return <div className="practice-room"><button className="back-link" onClick={onBack}><ArrowLeft size={15}/> Back to scenarios</button><div className="room-layout"><section className="room-main panel"><div className="room-title-row"><div className={`scenario-icon icon-${scenario.accent}`}><MessageCircle size={21}/></div><div className="room-title"><div className="scenario-meta"><span>{scenario.category}</span><span className="meta-dot">·</span><span>{scenario.level}</span></div><h2>{scenario.title}</h2></div><span className="live-chip"><i/> PRACTICE</span></div><div className="scenario-brief"><div className="brief-label"><Target size={14}/> YOUR OBJECTIVE</div><p>{scenario.objective}</p></div><div className="chat-window">{turns.map((turn, index) => <div className={`chat-message ${turn.role === "user" ? "from-user" : "from-ai"}`} key={`${turn.role}-${index}`}><div className={`chat-avatar ${turn.role === "user" ? "learner-avatar" : "ai-avatar"}`}>{turn.role === "user" ? "US" : <BrainCircuit size={16}/>}</div><div className="chat-message-content"><div className="chat-name">{turn.role === "user" ? "You" : "Conversation partner"}<span>{turn.role === "assistant" ? "AI character" : "Learner"}</span></div><div className="chat-bubble">{turn.content}</div></div></div>)}{busy && <div className="chat-message from-ai"><div className="chat-avatar ai-avatar"><BrainCircuit size={16}/></div><div className="chat-message-content"><div className="chat-name">Conversation partner <span>AI character</span></div><div className="chat-bubble typing"><i/><i/><i/></div></div></div>}<div ref={chatEndRef}/></div>{report ? <div className="session-finished"><CheckCircle2 size={18}/><div><strong>Practice complete</strong><span>Your reflection report is ready in the panel.</span></div><button className="btn btn-secondary btn-small" onClick={onRestart}>Try again</button></div> : <form className="composer" onSubmit={(e) => { e.preventDefault(); onSend(); }}><textarea value={composer} onChange={(e) => setComposer(e.target.value)} placeholder="Type what you would say..." rows={2} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }} aria-label="Your roleplay response"/><div className="composer-bottom"><span><Lightbulb size={13}/> Try acknowledging their concern before offering a solution.</span><button className="btn btn-primary" disabled={busy || !composer.trim()} type="submit"><Send size={15}/> Send response</button></div></form>}<div className="room-bottom-bar"><span><ShieldCheck size={13}/> Private practice prototype</span><span>{turns.filter((t) => t.role === "user").length} responses</span><button className="finish-link" disabled={busy || !!report} onClick={onFinish}>Finish & reflect <ArrowRight size={14}/></button></div></section><aside className="room-side"><div className="panel side-panel"><div className="side-panel-title"><div className="tiny-sparkle"><Sparkles size={16}/></div><div><h3>Session guide</h3><span>A gentle reminder</span></div></div><div className="guide-step"><div className="guide-step-num">1</div><div><strong>Pause and listen</strong><p>Identify the other person's main concern before moving to a solution.</p></div></div><div className="guide-step"><div className="guide-step-num">2</div><div><strong>Acknowledge the impact</strong><p>Show you understand why the situation matters to them.</p></div></div><div className="guide-step"><div className="guide-step-num">3</div><div><strong>Agree on a next step</strong><p>Suggest something concrete and check whether it helps.</p></div></div><div className="side-divider"/><div className="session-meta-row"><span><Clock3 size={14}/> Suggested duration</span><strong>{scenario.minutes} min</strong></div><div className="session-meta-row"><span><Target size={14}/> Skill level</span><strong>{scenario.level}</strong></div></div>{report ? <ReportPanel report={report} scenario={scenario}/> : <div className="coach-hint"><div className="coach-hint-icon"><Sparkles size={17}/></div><div><strong>Keep it human</strong><p>There isn't one perfect answer. Respond naturally and see how the conversation develops.</p></div></div>}</aside></div></div>;
+function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, onSend, onVoiceSend, onFinish, onBack, onRestart, chatEndRef }: {
+  scenario: Scenario;
+  turns: Turn[];
+  composer: string;
+  setComposer: (v: string) => void;
+  busy: boolean;
+  report: Report | null;
+  onSend: () => void;
+  onVoiceSend: (text: string) => Promise<string | null>;
+  onFinish: () => void;
+  onBack: () => void;
+  onRestart: () => void;
+  chatEndRef: RefObject<HTMLDivElement | null>;
+}) {
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("Start a hands-free conversation");
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const voiceEnabledRef = useRef(false);
+  const voiceProcessingRef = useRef(false);
+  const onVoiceSendRef = useRef(onVoiceSend);
+  const startListeningRef = useRef<(() => void) | null>(null);
+  const speakThenListenRef = useRef<((text: string) => void) | null>(null);
+  onVoiceSendRef.current = onVoiceSend;
+
+  function startListening() {
+    if (!voiceEnabledRef.current || voiceProcessingRef.current || report) return;
+    const speechWindow = window as WindowWithSpeechRecognition;
+    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setVoiceStatus("Voice input is not supported here. Try Chrome or Edge, or type below.");
+      voiceEnabledRef.current = false;
+      setVoiceMode(false);
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognitionRef.current = recognition;
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) transcript += result[0]?.transcript ?? "";
+      }
+      transcript = transcript.trim();
+      if (!transcript || voiceProcessingRef.current) return;
+      voiceProcessingRef.current = true;
+      setVoiceStatus("Morrow is thinking…");
+      recognition.stop();
+      void onVoiceSendRef.current(transcript).then((reply) => {
+        if (!voiceEnabledRef.current) return;
+        if (!reply) {
+          voiceProcessingRef.current = false;
+          startListeningRef.current?.();
+          return;
+        }
+        speakThenListenRef.current?.(reply);
+      }).catch(() => {
+        if (!voiceEnabledRef.current) return;
+        voiceProcessingRef.current = false;
+        setVoiceStatus("Something interrupted the voice turn. Listening again…");
+        startListeningRef.current?.();
+      });
+    };
+    recognition.onerror = (event) => {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        voiceEnabledRef.current = false;
+        voiceProcessingRef.current = false;
+        setVoiceMode(false);
+        setVoiceStatus("Microphone access was blocked. Allow it in your browser and try again.");
+      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+        setVoiceStatus(`Voice input issue (${event.error}). Try again or type below.`);
+      }
+    };
+    recognition.onend = () => {
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      if (voiceEnabledRef.current && !voiceProcessingRef.current && !window.speechSynthesis?.speaking) {
+        window.setTimeout(() => startListeningRef.current?.(), 300);
+      }
+    };
+    try {
+      recognition.start();
+      setVoiceStatus("Listening — speak naturally");
+    } catch {
+      setVoiceStatus("Could not start the microphone. Check browser permissions and try again.");
+    }
+  }
+  startListeningRef.current = startListening;
+
+  function speakThenListen(text: string) {
+    if (!voiceEnabledRef.current) return;
+    voiceProcessingRef.current = true;
+    setVoiceStatus("Morrow is speaking…");
+    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+      voiceProcessingRef.current = false;
+      setVoiceStatus("Reply received. Voice playback is not supported, so continue by typing.");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+    utterance.rate = 1;
+    utterance.onend = () => {
+      if (!voiceEnabledRef.current) return;
+      voiceProcessingRef.current = false;
+      startListeningRef.current?.();
+    };
+    utterance.onerror = () => {
+      if (!voiceEnabledRef.current) return;
+      voiceProcessingRef.current = false;
+      setVoiceStatus("Audio playback stopped. Listening again…");
+      startListeningRef.current?.();
+    };
+    window.speechSynthesis.speak(utterance);
+  }
+  speakThenListenRef.current = speakThenListen;
+
+  function startVoice() {
+    const speechWindow = window as WindowWithSpeechRecognition;
+    if (!(speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition)) {
+      setVoiceStatus("Voice input is not supported here. Try Chrome or Edge, or type below.");
+      return;
+    }
+    if (!("speechSynthesis" in window)) {
+      setVoiceStatus("Voice playback is not supported in this browser. Continue by typing.");
+      return;
+    }
+    voiceEnabledRef.current = true;
+    voiceProcessingRef.current = true;
+    setVoiceMode(true);
+    const openingLine = [...turns].reverse().find((turn) => turn.role === "assistant")?.content ?? scenario.openingLine;
+    speakThenListen(openingLine);
+  }
+
+  function stopVoice() {
+    voiceEnabledRef.current = false;
+    voiceProcessingRef.current = false;
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    setVoiceMode(false);
+    setVoiceStatus("Voice session ended");
+  }
+
+  useEffect(() => () => {
+    voiceEnabledRef.current = false;
+    recognitionRef.current?.stop();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  }, []);
+
+  return <div className="practice-room">
+    <button className="back-link" onClick={() => { stopVoice(); onBack(); }}><ArrowLeft size={15}/> Back to scenarios</button>
+    <div className="room-layout">
+      <section className="room-main panel">
+        <div className="room-title-row">
+          <div className={`scenario-icon icon-${scenario.accent}`}><MessageCircle size={21}/></div>
+          <div className="room-title"><div className="scenario-meta"><span>{scenario.category}</span><span className="meta-dot">·</span><span>{scenario.level}</span></div><h2>{scenario.title}</h2></div>
+          <span className="live-chip"><i/> PRACTICE</span>
+        </div>
+        <div className="scenario-brief"><div className="brief-label"><Target size={14}/> YOUR OBJECTIVE</div><p>{scenario.objective}</p></div>
+        <div className={`voice-bar ${voiceMode ? "voice-bar-active" : ""}`}>
+          <div className={`voice-orb ${voiceMode ? "voice-orb-active" : ""}`}><AudioLines size={18}/></div>
+          <div className="voice-copy">
+            <strong>{voiceMode ? voiceStatus : voiceStatus}</strong>
+            <span>{voiceMode ? "Speak after the character finishes. Morrow will listen again after each reply." : "Practise out loud without typing. Browser speech input and playback are used."}</span>
+          </div>
+          <button type="button" className={`btn ${voiceMode ? "btn-secondary" : "btn-primary"} voice-toggle`} onClick={voiceMode ? stopVoice : startVoice} disabled={!!report || busy}>
+            {voiceMode ? <X size={14}/> : <Mic size={14}/>} {voiceMode ? "End voice" : "Live voice"}
+          </button>
+        </div>
+        <div className="chat-window">
+          {turns.map((turn, index) => <div className={`chat-message ${turn.role === "user" ? "from-user" : "from-ai"}`} key={`${turn.role}-${index}`}>
+            <div className={`chat-avatar ${turn.role === "user" ? "learner-avatar" : "ai-avatar"}`}>{turn.role === "user" ? "US" : <BrainCircuit size={16}/>}</div>
+            <div className="chat-message-content"><div className="chat-name">{turn.role === "user" ? "You" : "Conversation partner"}<span>{turn.role === "assistant" ? "AI character" : "Learner"}</span></div><div className="chat-bubble">{turn.content}</div></div>
+          </div>)}
+          {busy && <div className="chat-message from-ai"><div className="chat-avatar ai-avatar"><BrainCircuit size={16}/></div><div className="chat-message-content"><div className="chat-name">Conversation partner <span>AI character</span></div><div className="chat-bubble typing"><i/><i/><i/></div></div></div>}
+          <div ref={chatEndRef}/>
+        </div>
+        {report ? <div className="session-finished"><CheckCircle2 size={18}/><div><strong>Practice complete</strong><span>Your reflection report is ready in the panel.</span></div><button className="btn btn-secondary btn-small" onClick={onRestart}>Try again</button></div> : <form className="composer" onSubmit={(e) => { e.preventDefault(); onSend(); }}>
+          <textarea value={composer} onChange={(e) => setComposer(e.target.value)} placeholder={voiceMode ? "You can also type a response…" : "Type what you would say..."} rows={2} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }} aria-label="Your roleplay response"/>
+          <div className="composer-bottom"><span><Lightbulb size={13}/> Try acknowledging their concern before offering a solution.</span><button className="btn btn-primary" disabled={busy || !composer.trim()} type="submit"><Send size={15}/> Send response</button></div>
+        </form>}
+        <div className="room-bottom-bar"><span><ShieldCheck size={13}/> Private practice prototype</span><span>{turns.filter((t) => t.role === "user").length} responses</span><button className="finish-link" disabled={busy || !!report} onClick={() => { stopVoice(); onFinish(); }}>Finish & reflect <ArrowRight size={14}/></button></div>
+      </section>
+      <aside className="room-side">
+        <div className="panel side-panel">
+          <div className="side-panel-title"><div className="tiny-sparkle"><Sparkles size={16}/></div><div><h3>Session guide</h3><span>A gentle reminder</span></div></div>
+          <div className="guide-step"><div className="guide-step-num">1</div><div><strong>Pause and listen</strong><p>Identify the other person's main concern before moving to a solution.</p></div></div>
+          <div className="guide-step"><div className="guide-step-num">2</div><div><strong>Acknowledge the impact</strong><p>Show you understand why the situation matters to them.</p></div></div>
+          <div className="guide-step"><div className="guide-step-num">3</div><div><strong>Agree on a next step</strong><p>Suggest something concrete and check whether it helps.</p></div></div>
+          <div className="side-divider"/>
+          <div className="session-meta-row"><span><Clock3 size={14}/> Suggested duration</span><strong>{scenario.minutes} min</strong></div>
+          <div className="session-meta-row"><span><Target size={14}/> Skill level</span><strong>{scenario.level}</strong></div>
+        </div>
+        {report ? <ReportPanel report={report} scenario={scenario}/> : <div className="coach-hint"><div className="coach-hint-icon"><Sparkles size={17}/></div><div><strong>Keep it human</strong><p>There isn't one perfect answer. Respond naturally and see how the conversation develops.</p></div></div>}
+      </aside>
+    </div>
+  </div>;
 }
 
 function ReportPanel({ report, scenario }: { report: Report; scenario: Scenario }) { return <div className="panel report-panel"><div className="report-head"><div><div className="eyebrow">SESSION REFLECTION</div><h3>Your feedback</h3></div><span className={`mode-chip ${report.mode === "ai" ? "mode-ai" : "mode-demo"}`}>{report.mode === "ai" ? "AI REVIEW" : "DEMO REVIEW"}</span></div><div className="report-score"><div className="report-score-number">{report.overall}<span>/100</span></div><div className="report-score-bar"><i style={{ width: `${report.overall}%` }}/></div><p>{report.summary}</p></div><div className="report-section"><strong><CheckCircle2 size={15}/> What went well</strong><ul>{report.strengths.map((x, i) => <li key={i}>{x}</li>)}</ul></div><div className="report-section"><strong><Lightbulb size={15}/> Next to practise</strong><ul>{report.improvements.map((x, i) => <li key={i}>{x}</li>)}</ul></div><div className="rubric-list">{report.scores.map((s) => <div className="rubric-item" key={s.criterion}><div><span>{s.criterion}</span><strong>{s.score}/5</strong></div><div className="rubric-track"><i style={{ width: `${s.score * 20}%` }}/></div><p>{s.rationale}</p></div>)}</div><div className="next-practice"><span>YOUR NEXT STEP</span><p>{report.nextStep}</p></div><ReflectionCoach report={report} scenario={scenario}/></div>; }
