@@ -1,0 +1,41 @@
+name: Expand Morrow source
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/expand-source.yml"
+      - "morrow-project.tar.gz.b64"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Expand application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s morrow-project.tar.gz.b64
+          mkdir -p "$RUNNER_TEMP/morrow-source"
+          base64 --decode morrow-project.tar.gz.b64 | tar -xz --strip-components=1 -C "$RUNNER_TEMP/morrow-source"
+          test -s "$RUNNER_TEMP/morrow-source/package.json"
+          cp -a "$RUNNER_TEMP/morrow-source/." .
+          rm -f morrow-project.tar.gz.b64 morrow-archive-*.txt
+      - name: Commit expanded project
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+          else
+            git commit -m "Expand Morrow application source"
+            git push
+          fi
