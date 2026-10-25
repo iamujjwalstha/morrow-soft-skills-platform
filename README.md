@@ -58,10 +58,16 @@ Only investigate public pages and trial functionality you are authorized to acce
 - [`docs/REA-RUNBOOK.md`](docs/REA-RUNBOOK.md) — practical investigation steps
 - [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql) — initial database model and RLS sketch
 
+## Hands-free voice practice (beta)
+
+The Practice lab includes an opt-in **Live voice** mode. In supported browsers (best tested in Chrome or Edge), the scenario prompt is spoken aloud, microphone speech is transcribed by the browser, the transcript is sent through the same `/api/roleplay` flow as typed messages, and the reply is read aloud before listening resumes. Stop the voice session at any time; text entry remains available as a fallback.
+
+Browser speech recognition and speech synthesis are used for this first version; it is turn-based rather than a streaming, interruption-capable speech-to-speech connection. Real AI conversation replies still require `OPENAI_API_KEY` in the server environment. Without it, the app uses the clearly limited demo roleplay reply generator.
+
 ## Next milestones
 
 1. Inspect the authorized Bodyswaps trial with REA and fill in an evidence-backed feature matrix.
 2. Wire Supabase authentication and persistence; replace demo sample learner data.
 3. Add authenticated scenario/assignment/report routes and automated RLS tests.
 4. Test the AI evaluator on synthetic scenarios and disclose score limitations.
-5. Add voice as an opt-in enhancement, then build a separate VR client against the stable session API.
+5. Evaluate voice mode across supported browsers, then consider a streaming speech-to-speech connection and a separate VR client.
