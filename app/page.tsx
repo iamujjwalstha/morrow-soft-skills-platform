@@ -189,7 +189,7 @@ export default function Home() {
 
           {activeNav === "Overview" && <OverviewView sessions={sessions} scenarios={scenarios} latest={latest} average={average} completeCount={completeCount} onStart={startScenario} onNavigate={setActiveNav} onReport={downloadReport} />}
           {activeNav === "Practice lab" && !selected && <PracticeView scenarios={filteredScenarios} search={search} setSearch={setSearch} filter={filter} setFilter={setFilter} onStart={startScenario} />}
-          {isPractice && selected && <PracticeRoom scenario={selected} turns={turns} composer={composer} setComposer={setComposer} busy={busy} report={report} onSend={() => { void sendMessage(); }} onVoiceSend={sendMessage} onFinish={finishSession} onBack={() => { setSelected(null); setReport(null); }} onRestart={() => { if (selected) setTurns([{ role: "assistant", content: selected.openingLine }]); setReport(null); }} chatEndRef={chatEndRef} />}
+          {isPractice && selected && <PracticeRoom scenario={selected} turns={turns} composer={composer} setComposer={setComposer} busy={busy} report={report} onSend={() => { void sendMessage(); }} onVoiceSend={sendMessage} onVoiceTurn={(role, content) => setTurns((old) => [...old, { role, content, at: new Date().toISOString() }])} onFinish={finishSession} onBack={() => { setSelected(null); setReport(null); }} onRestart={() => { if (selected) setTurns([{ role: "assistant", content: selected.openingLine }]); setReport(null); }} chatEndRef={chatEndRef} />}
           {activeNav === "Scenario studio" && <ScenarioStudio scenarios={scenarios} sessions={sessions} onCreate={() => setShowCreate(true)} onPreview={startScenario} onDelete={(id) => { setScenarios((old) => old.filter((s) => s.id !== id)); setToast("Scenario removed from this browser."); }} />}
           {activeNav === "Learners" && <LearnersView sessions={sessions} />}
           {activeNav === "Analytics" && <AnalyticsView sessions={sessions} scenarios={scenarios} average={average} />}
@@ -223,7 +223,7 @@ function PracticeView({ scenarios, search, setSearch, filter, setFilter, onStart
   return <div className="view-stack"><div className="practice-intro"><div><div className="eyebrow">SAFE SPACE. REAL CONVERSATIONS.</div><h2>What would you like to practise?</h2><p>Choose a realistic moment, try a different response and reflect on what worked.</p></div><div className="practice-intro-icon"><BrainCircuit size={34}/><span/><span/></div></div><div className="filters-row"><div className="search-box"><Search size={17}/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search scenarios..." aria-label="Search scenarios"/></div><div className="filter-select"><span>Skill area</span><select value={filter} onChange={(e) => setFilter(e.target.value)}>{categories.map((x) => <option key={x}>{x}</option>)}</select><ChevronDown size={14}/></div><div className="result-count">{scenarios.length} scenarios</div></div>{scenarios.length ? <div className="scenario-grid">{scenarios.map((s, i) => <div className="scenario-card" key={s.id}><div className={`scenario-card-visual visual-${s.accent}`}><div className="visual-number">0{i+1}</div><div className="visual-shape shape-one"/><div className="visual-shape shape-two"/><div className="visual-icon">{s.category === "Leadership" ? <Users size={26}/> : s.category === "Customer service" ? <Headphones size={26}/> : s.category === "Communication" ? <MessageCircle size={26}/> : <BriefcaseBusiness size={26}/>}</div><span className="difficulty-chip">{s.level}</span></div><div className="scenario-card-body"><div className="scenario-category">{s.category}</div><h3>{s.title}</h3><p>{s.description}</p><div className="scenario-card-foot"><div className="time-label"><Clock3 size={14}/>{s.minutes} min</div><button className="btn btn-primary btn-small" onClick={() => onStart(s)}>Start <ArrowRight size={14}/></button></div></div></div>)}</div> : <div className="empty-state"><div className="empty-symbol"><Search size={23}/></div><strong>No scenarios found</strong><span>Try a different search term or skill filter.</span></div>}<div className="privacy-banner"><div className="privacy-icon"><ShieldCheck size={20}/></div><div><strong>Practice without pressure</strong><p>This prototype stores practice sessions in your browser. Do not enter real customer, employee or sensitive personal information.</p></div></div></div>;
 }
 
-function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, onSend, onVoiceSend, onFinish, onBack, onRestart, chatEndRef }: {
+function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, onSend, onVoiceSend, onVoiceTurn, onFinish, onBack, onRestart, chatEndRef }: {
   scenario: Scenario;
   turns: Turn[];
   composer: string;
@@ -232,20 +232,28 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
   report: Report | null;
   onSend: () => void;
   onVoiceSend: (text: string) => Promise<string | null>;
+  onVoiceTurn: (role: "user" | "assistant", content: string) => void;
   onFinish: () => void;
   onBack: () => void;
   onRestart: () => void;
   chatEndRef: RefObject<HTMLDivElement | null>;
 }) {
   const [voiceMode, setVoiceMode] = useState(false);
+  const [voiceEngine, setVoiceEngine] = useState<"browser" | "realtime" | null>(null);
   const [voiceStatus, setVoiceStatus] = useState("Start a hands-free conversation");
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const voiceEnabledRef = useRef(false);
   const voiceProcessingRef = useRef(false);
   const onVoiceSendRef = useRef(onVoiceSend);
+  const onVoiceTurnRef = useRef(onVoiceTurn);
   const startListeningRef = useRef<(() => void) | null>(null);
   const speakThenListenRef = useRef<((text: string) => void) | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   onVoiceSendRef.current = onVoiceSend;
+  onVoiceTurnRef.current = onVoiceTurn;
 
   function startListening() {
     if (!voiceEnabledRef.current || voiceProcessingRef.current || report) return;
@@ -255,6 +263,7 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
       setVoiceStatus("Voice input is not supported here. Try Chrome or Edge, or type below.");
       voiceEnabledRef.current = false;
       setVoiceMode(false);
+      setVoiceEngine(null);
       return;
     }
     const recognition = new Recognition();
@@ -293,6 +302,7 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
         voiceEnabledRef.current = false;
         voiceProcessingRef.current = false;
         setVoiceMode(false);
+        setVoiceEngine(null);
         setVoiceStatus("Microphone access was blocked. Allow it in your browser and try again.");
       } else if (event.error !== "no-speech" && event.error !== "aborted") {
         setVoiceStatus(`Voice input issue (${event.error}). Try again or type below.`);
@@ -341,20 +351,136 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
   }
   speakThenListenRef.current = speakThenListen;
 
-  function startVoice() {
-    const speechWindow = window as WindowWithSpeechRecognition;
-    if (!(speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition)) {
-      setVoiceStatus("Voice input is not supported here. Try Chrome or Edge, or type below.");
-      return;
+  function releaseRealtimeResources() {
+    try { dataChannelRef.current?.close(); } catch {}
+    dataChannelRef.current = null;
+    try { peerConnectionRef.current?.close(); } catch {}
+    peerConnectionRef.current = null;
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    micStreamRef.current = null;
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.pause();
+      remoteAudioRef.current.srcObject = null;
     }
-    if (!("speechSynthesis" in window)) {
-      setVoiceStatus("Voice playback is not supported in this browser. Continue by typing.");
-      return;
+  }
+
+  async function connectRealtimeVoice() {
+    setVoiceStatus("Opening a secure live audio connection…");
+    const connection = new RTCPeerConnection();
+    peerConnectionRef.current = connection;
+    connection.ontrack = (event) => {
+      if (!remoteAudioRef.current || !event.streams[0]) return;
+      remoteAudioRef.current.srcObject = event.streams[0];
+      void remoteAudioRef.current.play().catch(() => setVoiceStatus("Audio is connected. Click the page once if playback is blocked."));
+    };
+    connection.onconnectionstatechange = () => {
+      if (connection.connectionState === "failed" || connection.connectionState === "disconnected") {
+        setVoiceStatus("Live audio connection was interrupted. You can stop and reconnect.");
+      }
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    micStreamRef.current = stream;
+    stream.getTracks().forEach((track) => connection.addTrack(track, stream));
+
+    const channel = connection.createDataChannel("morrow-realtime-events");
+    dataChannelRef.current = channel;
+    channel.onopen = () => {
+      if (!voiceEnabledRef.current) return;
+      setVoiceStatus("Live AI audio connected — speak naturally");
+      channel.send(JSON.stringify({ type: "response.create" }));
+    };
+    channel.onmessage = (event) => {
+      try {
+        const message = JSON.parse(String(event.data)) as { type?: string; transcript?: string; error?: { message?: string }; item?: { content?: Array<{ transcript?: string }> } };
+        if (message.type === "input_audio_buffer.speech_started") setVoiceStatus("Listening — speak naturally");
+        if (message.type === "response.created") setVoiceStatus("Morrow is speaking…");
+        if (message.type === "response.done") setVoiceStatus("Live AI audio connected — speak naturally");
+        if (message.type === "conversation.item.input_audio_transcription.completed") {
+          const transcript = message.transcript?.trim();
+          if (transcript) onVoiceTurnRef.current("user", transcript);
+        }
+        if (message.type === "response.output_audio_transcript.done") {
+          const transcript = (message.transcript ?? message.item?.content?.find((part) => !!part.transcript)?.transcript)?.trim();
+          if (transcript) onVoiceTurnRef.current("assistant", transcript);
+        }
+        if (message.type === "error") setVoiceStatus(message.error?.message || "The live audio service reported an issue.");
+      } catch {
+        // Ignore non-JSON control messages.
+      }
+    };
+
+    const offer = await connection.createOffer();
+    await connection.setLocalDescription(offer);
+    const sdp = connection.localDescription?.sdp;
+    if (!sdp) throw new Error("The browser did not create a session offer.");
+    const response = await fetch("/api/realtime/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sdp,
+        scenario: {
+          title: scenario.title, objective: scenario.objective, persona: scenario.persona,
+          openingLine: scenario.openingLine, characterMood: scenario.characterMood,
+          learnerRole: scenario.learnerRole, learnerInstructions: scenario.learnerInstructions,
+          setting: scenario.setting,
+        },
+        turns: turns.slice(-12),
+      }),
+    });
+    const answerSdp = await response.text();
+    if (!response.ok) {
+      let message = "Realtime voice could not start.";
+      try { message = JSON.parse(answerSdp).error || message; } catch {}
+      throw new Error(message);
     }
+    await connection.setRemoteDescription({ type: "answer", sdp: answerSdp });
+  }
+
+  async function startVoice() {
+    if (voiceEnabledRef.current) return;
+    const openingLine = [...turns].reverse().find((turn) => turn.role === "assistant")?.content ?? scenario.openingLine;
     voiceEnabledRef.current = true;
     voiceProcessingRef.current = true;
     setVoiceMode(true);
-    const openingLine = [...turns].reverse().find((turn) => turn.role === "assistant")?.content ?? scenario.openingLine;
+    setVoiceStatus("Checking live voice availability…");
+
+    if (navigator.mediaDevices?.getUserMedia && typeof RTCPeerConnection !== "undefined") {
+      try {
+        const availability = await fetch("/api/realtime/session", { cache: "no-store" });
+        const status = await availability.json();
+        if (availability.ok && status.configured) {
+          setVoiceEngine("realtime");
+          await connectRealtimeVoice();
+          return;
+        }
+      } catch {
+        // A browser-based voice session remains available if Realtime isn't configured.
+      }
+    }
+
+    releaseRealtimeResources();
+    const speechWindow = window as WindowWithSpeechRecognition;
+    if (!(speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition)) {
+      voiceEnabledRef.current = false;
+      voiceProcessingRef.current = false;
+      setVoiceMode(false);
+      setVoiceEngine(null);
+      setVoiceStatus("Live AI audio is not configured, and this browser lacks speech input. Try Chrome or Edge after adding an API key.");
+      return;
+    }
+    if (!("speechSynthesis" in window)) {
+      voiceEnabledRef.current = false;
+      voiceProcessingRef.current = false;
+      setVoiceMode(false);
+      setVoiceEngine(null);
+      setVoiceStatus("This browser does not support spoken replies. Continue by typing.");
+      return;
+    }
+    setVoiceEngine("browser");
+    setVoiceStatus("Browser voice mode — turn-based conversation");
     speakThenListen(openingLine);
   }
 
@@ -363,16 +489,31 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
     voiceProcessingRef.current = false;
     recognitionRef.current?.stop();
     recognitionRef.current = null;
+    releaseRealtimeResources();
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
     setVoiceMode(false);
+    setVoiceEngine(null);
     setVoiceStatus("Voice session ended");
   }
 
   useEffect(() => () => {
     voiceEnabledRef.current = false;
     recognitionRef.current?.stop();
+    try { dataChannelRef.current?.close(); } catch {}
+    try { peerConnectionRef.current?.close(); } catch {}
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.pause();
+      remoteAudioRef.current.srcObject = null;
+    }
   }, []);
+
+  const voiceDescription = voiceEngine === "realtime"
+    ? "Streaming speech-to-speech audio. Speak naturally; the model can listen and respond in the same session."
+    : voiceMode
+      ? "Browser voice mode listens after each reply. You can stop it at any time or type instead."
+      : "Hands-free conversation. Uses streaming AI audio when configured, otherwise browser speech.";
 
   return <div className="practice-room">
     <button className="back-link" onClick={() => { stopVoice(); onBack(); }}><ArrowLeft size={15}/> Back to scenarios</button>
@@ -386,14 +527,12 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
         <div className="scenario-brief"><div className="brief-label"><Target size={14}/> YOUR OBJECTIVE</div><p>{scenario.objective}</p></div>
         <div className={`voice-bar ${voiceMode ? "voice-bar-active" : ""}`}>
           <div className={`voice-orb ${voiceMode ? "voice-orb-active" : ""}`}><AudioLines size={18}/></div>
-          <div className="voice-copy">
-            <strong>{voiceMode ? voiceStatus : voiceStatus}</strong>
-            <span>{voiceMode ? "Speak after the character finishes. Morrow will listen again after each reply." : "Practise out loud without typing. Browser speech input and playback are used."}</span>
-          </div>
-          <button type="button" className={`btn ${voiceMode ? "btn-secondary" : "btn-primary"} voice-toggle`} onClick={voiceMode ? stopVoice : startVoice} disabled={!!report || busy}>
+          <div className="voice-copy"><strong>{voiceStatus}</strong><span>{voiceDescription}</span></div>
+          <button type="button" className={`btn ${voiceMode ? "btn-secondary" : "btn-primary"} voice-toggle`} onClick={voiceMode ? stopVoice : () => { void startVoice(); }} disabled={!!report}>
             {voiceMode ? <X size={14}/> : <Mic size={14}/>} {voiceMode ? "End voice" : "Live voice"}
           </button>
         </div>
+        <audio ref={remoteAudioRef} autoPlay playsInline aria-label="Morrow live voice audio" style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}/>
         <div className="chat-window">
           {turns.map((turn, index) => <div className={`chat-message ${turn.role === "user" ? "from-user" : "from-ai"}`} key={`${turn.role}-${index}`}>
             <div className={`chat-avatar ${turn.role === "user" ? "learner-avatar" : "ai-avatar"}`}>{turn.role === "user" ? "US" : <BrainCircuit size={16}/>}</div>
@@ -403,8 +542,8 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
           <div ref={chatEndRef}/>
         </div>
         {report ? <div className="session-finished"><CheckCircle2 size={18}/><div><strong>Practice complete</strong><span>Your reflection report is ready in the panel.</span></div><button className="btn btn-secondary btn-small" onClick={onRestart}>Try again</button></div> : <form className="composer" onSubmit={(e) => { e.preventDefault(); onSend(); }}>
-          <textarea value={composer} onChange={(e) => setComposer(e.target.value)} placeholder={voiceMode ? "You can also type a response…" : "Type what you would say..."} rows={2} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }} aria-label="Your roleplay response"/>
-          <div className="composer-bottom"><span><Lightbulb size={13}/> Try acknowledging their concern before offering a solution.</span><button className="btn btn-primary" disabled={busy || !composer.trim()} type="submit"><Send size={15}/> Send response</button></div>
+          <textarea value={composer} onChange={(e) => setComposer(e.target.value)} placeholder={voiceEngine === "realtime" ? "Live audio is active. You can type after ending voice mode." : "Type what you would say..."} rows={2} disabled={voiceEngine === "realtime"} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }} aria-label="Your roleplay response"/>
+          <div className="composer-bottom"><span><Lightbulb size={13}/> Try acknowledging their concern before offering a solution.</span><button className="btn btn-primary" disabled={busy || !composer.trim() || voiceEngine === "realtime"} type="submit"><Send size={15}/> Send response</button></div>
         </form>}
         <div className="room-bottom-bar"><span><ShieldCheck size={13}/> Private practice prototype</span><span>{turns.filter((t) => t.role === "user").length} responses</span><button className="finish-link" disabled={busy || !!report} onClick={() => { stopVoice(); onFinish(); }}>Finish & reflect <ArrowRight size={14}/></button></div>
       </section>
