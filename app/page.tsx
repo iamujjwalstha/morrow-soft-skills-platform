@@ -240,6 +240,7 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
 }) {
   const [voiceMode, setVoiceMode] = useState(false);
   const [voiceEngine, setVoiceEngine] = useState<"browser" | "realtime" | null>(null);
+  const [realtimeConfigured, setRealtimeConfigured] = useState<boolean | null>(null);
   const [voiceStatus, setVoiceStatus] = useState("Start a hands-free conversation");
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const voiceEnabledRef = useRef(false);
@@ -451,6 +452,7 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
       try {
         const availability = await fetch("/api/realtime/session", { cache: "no-store" });
         const status = await availability.json();
+        setRealtimeConfigured(Boolean(status.configured));
         if (availability.ok && status.configured) {
           setVoiceEngine("realtime");
           await connectRealtimeVoice();
@@ -511,9 +513,11 @@ function PracticeRoom({ scenario, turns, composer, setComposer, busy, report, on
 
   const voiceDescription = voiceEngine === "realtime"
     ? "Streaming speech-to-speech audio. Speak naturally; the model can listen and respond in the same session."
-    : voiceMode
-      ? "Browser voice mode listens after each reply. You can stop it at any time or type instead."
-      : "Hands-free conversation. Uses streaming AI audio when configured, otherwise browser speech.";
+    : voiceMode && realtimeConfigured === false
+      ? "Browser speech is active, but roleplay replies are demo responses until OPENAI_API_KEY is added to Vercel."
+      : voiceMode
+        ? "Browser voice mode listens after each reply. You can stop it at any time or type instead."
+        : "Hands-free conversation. Uses streaming AI audio when configured, otherwise browser speech.";
 
   return <div className="practice-room">
     <button className="back-link" onClick={() => { stopVoice(); onBack(); }}><ArrowLeft size={15}/> Back to scenarios</button>
