@@ -58,11 +58,11 @@ Only investigate public pages and trial functionality you are authorized to acce
 - [`docs/REA-RUNBOOK.md`](docs/REA-RUNBOOK.md) — practical investigation steps
 - [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql) — initial database model and RLS sketch
 
-## Hands-free voice practice (beta)
+## Hands-free voice practice
 
-The Practice lab includes an opt-in **Live voice** mode. In supported browsers (best tested in Chrome or Edge), the scenario prompt is spoken aloud, microphone speech is transcribed by the browser, the transcript is sent through the same `/api/roleplay` flow as typed messages, and the reply is read aloud before listening resumes. Stop the voice session at any time; text entry remains available as a fallback.
+The Practice lab includes an opt-in **Live voice** mode. With `OPENAI_API_KEY` set in the server environment, Morrow connects to OpenAI's Realtime API over WebRTC for streaming speech-to-speech roleplay; the standard key remains on the server. Without a key, it falls back to browser speech recognition and speech synthesis, which is turn-based. Chrome or Edge is recommended for the fallback.
 
-Browser speech recognition and speech synthesis are used for this first version; it is turn-based rather than a streaming, interruption-capable speech-to-speech connection. Real AI conversation replies still require `OPENAI_API_KEY` in the server environment. Without it, the app uses the clearly limited demo roleplay reply generator.
+Set `OPENAI_REALTIME_MODEL=gpt-realtime-2.1-mini` to override the default realtime model. Audio sessions are API-billed, so configure spending limits and add authentication/rate limiting before making the app broadly public. Text entry remains available as a fallback. See the [Realtime WebRTC guide](https://developers.openai.com/api/docs/guides/realtime-webrtc) for the official connection pattern.
 
 ## Next milestones
 
@@ -70,4 +70,4 @@ Browser speech recognition and speech synthesis are used for this first version;
 2. Wire Supabase authentication and persistence; replace demo sample learner data.
 3. Add authenticated scenario/assignment/report routes and automated RLS tests.
 4. Test the AI evaluator on synthetic scenarios and disclose score limitations.
-5. Evaluate voice mode across supported browsers, then consider a streaming speech-to-speech connection and a separate VR client.
+5. Add authentication, server-side rate limiting, and persistent storage before a wider rollout; then evaluate a separate VR client.
