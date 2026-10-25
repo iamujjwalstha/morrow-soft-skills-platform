@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/expand-source.yml"
       - "morrow-project.tar.gz.b64"
+      - "README.md"
   workflow_dispatch:
 permissions:
   contents: write
