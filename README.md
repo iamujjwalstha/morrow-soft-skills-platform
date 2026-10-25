@@ -1,39 +1,67 @@
 # Morrow — AI Soft Skills Studio
 
-An independent AI soft-skills training platform prototype, inspired by common soft-skills training workflows. This is not a copy of Bodyswaps' proprietary source code or content.
+An original soft-skills training platform starter inspired by common AI roleplay and experiential-learning patterns. It is **not a copy of Bodyswaps** and includes only original demo scenarios and UI code.
 
-## Source bootstrap
+## What works in this starter
 
-The project source is provided as a compressed archive while GitHub Actions expands it into ordinary browsable files. The workflow `.github/workflows/expand-source.yml` runs when added to `main` or when manually invoked.
+- Learner dashboard and scenario browsing
+- Text-based roleplay UI
+- Optional server-side OpenAI-compatible responses
+- Feedback report with rubric dimensions and a reflective AI-coach follow-up
+- Trainer-oriented scenario studio (create and delete scenarios locally)
+- Sample learner directory and analytics views
+- Local browser persistence and text report export
+- Supabase schema/RLS starting point
+- REA workflow documentation for a scoped, authorized investigation
 
-After the workflow succeeds, this repository root will contain the Next.js source tree, database migration, API routes, and project docs.
+### Honest demo-mode behaviour
+
+Without `OPENAI_API_KEY`, roleplay responses, feedback and reflection coaching use deterministic rules and are marked **demo**. This is a functional prototype, not a real AI service or validated skills assessment. The current UI does not connect to Supabase; saved data remain in the browser's localStorage. Do not enter sensitive or real learner information.
 
 ## Run locally
 
-Use Node.js 22 or 24 and npm.
+Prerequisite: Node.js 22+ recommended for this Next.js app. REA itself has a stricter currently documented minimum of Node.js 22.23.4 (or supported 24.x / 26.x releases); check `docs/REA-RUNBOOK.md`.
 
 ```powershell
+# From the project directory
 npm install
 Copy-Item .env.example .env.local
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open `http://localhost:3000`.
 
-Demo mode is available without provider credentials. To enable model-backed roleplay/feedback, set `OPENAI_API_KEY` in `.env.local` and restart the server. Never commit real API keys.
+To enable model-backed roleplay and evaluation, edit `.env.local` on your own machine:
 
-## Current scope
+```dotenv
+OPENAI_API_KEY=your_server_side_key
+OPENAI_MODEL=gpt-6-luna
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
 
-- Learner dashboard, scenario library and text roleplay
-- Trainer and analytics prototype screens
-- Server-side AI routes with demo fallbacks
-- Initial Supabase schema
-- REA investigation runbook and implementation roadmap
+Restart the development server after changing env vars. Never put the API key in `NEXT_PUBLIC_*`, browser code, screenshots or Git. AI-provider errors currently fall back to demo mode; inspect server logs and improve failure reporting before production.
 
-## Limitations
+## Supabase foundation
 
-This is a starter MVP, not a production system. Persistent Supabase authentication/storage still needs to be wired to the interface, and a full dependency install/build/functional test is still required. Voice interaction and VR are later phases.
+`supabase/migrations/001_initial_schema.sql` defines organizations, memberships, scenario versions, pathways, assignments, sessions, turns, feedback reports, rubric scores and audit events with initial RLS policies. It is an implementation starting point, not a security certification. Review and test all policies before use with real data. The current user interface does not yet call Supabase or perform server-side user authorization.
 
-## Deployment
+## Use REA for research
 
-This repository is intended to deploy as a Next.js project on Vercel after the expansion workflow succeeds. Configure secrets such as `OPENAI_API_KEY` in the host's environment-variable settings, not in this repository.
+See [`docs/REA-RUNBOOK.md`](docs/REA-RUNBOOK.md) for installing REA, isolating the Chrome profile, discovering a page, creating sanitized evidence captures and comparing the new app. Official docs: [REA repository](https://github.com/morluto/rea), [installation guide](https://github.com/morluto/rea/blob/main/docs/installation.md), [browser observation guide](https://github.com/morluto/rea/blob/main/docs/browser-observation.md).
+
+Only investigate public pages and trial functionality you are authorized to access. REA is a passive inspection and analysis tool; it is not a way to bypass authentication or recover proprietary backend logic.
+
+## Project docs
+
+- [`docs/PUBLIC-OBSERVATIONS.md`](docs/PUBLIC-OBSERVATIONS.md) — publicly visible reference features and evidence limits
+- [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) — scope, milestones and acceptance criteria
+- [`docs/REA-RUNBOOK.md`](docs/REA-RUNBOOK.md) — practical investigation steps
+- [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql) — initial database model and RLS sketch
+
+## Next milestones
+
+1. Inspect the authorized Bodyswaps trial with REA and fill in an evidence-backed feature matrix.
+2. Wire Supabase authentication and persistence; replace demo sample learner data.
+3. Add authenticated scenario/assignment/report routes and automated RLS tests.
+4. Test the AI evaluator on synthetic scenarios and disclose score limitations.
+5. Add voice as an opt-in enhancement, then build a separate VR client against the stable session API.
