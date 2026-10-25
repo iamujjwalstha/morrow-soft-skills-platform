@@ -19,7 +19,7 @@ export async function POST(request: Request) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({
-          model: process.env.OPENAI_MODEL || "gpt-6-luna",
+          model: process.env.OPENAI_MODEL || "gpt-4o-mini",
           reasoning_effort: "none",
           max_completion_tokens: 450,
           messages: [
